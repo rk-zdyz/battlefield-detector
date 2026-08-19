@@ -28,7 +28,7 @@ class SHARPOfflineResilienceManager:
 
     def _init_db(self):
         """Initializes local SQLite database schema for offline log persistence."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
         cursor = conn.cursor()
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS threat_logs (
@@ -49,7 +49,7 @@ class SHARPOfflineResilienceManager:
         """
         Logs a tactical threat alert locally into the offline buffer.
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO threat_logs (timestamp, threat_id, threat_type, confidence, mse_score, bbox_json, synced)
@@ -67,7 +67,7 @@ class SHARPOfflineResilienceManager:
 
     def get_pending_sync_count(self):
         """Returns number of un-synchronized offline telemetry records."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM threat_logs WHERE synced = 0")
         count = cursor.fetchone()[0]
@@ -76,7 +76,7 @@ class SHARPOfflineResilienceManager:
 
     def get_recent_logs(self, limit=10):
         """Fetches most recent logged alerts."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
         cursor = conn.cursor()
         cursor.execute("SELECT id, timestamp, threat_type, confidence, mse_score, bbox_json, synced FROM threat_logs ORDER BY id DESC LIMIT ?", (limit,))
         rows = cursor.fetchall()
@@ -112,7 +112,7 @@ class SHARPOfflineResilienceManager:
 
     def _synchronize_logs(self):
         """Synchronizes local offline logs with command server upon reconnection."""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
         cursor = conn.cursor()
         cursor.execute("UPDATE threat_logs SET synced = 1 WHERE synced = 0")
         conn.commit()

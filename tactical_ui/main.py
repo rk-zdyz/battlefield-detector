@@ -111,7 +111,9 @@ class BattlefieldDetectionPipeline:
         with torch.no_grad():
             recon_tensor = self.snn_model(input_tensor)
 
-        recon_np = recon_tensor.squeeze().cpu().numpy()
+        recon_np = recon_tensor.detach().cpu().numpy()
+        if recon_np.ndim > 2:
+            recon_np = recon_np[0, 0] if recon_np.ndim == 4 else recon_np[0]
         recon_resized = (cv2.resize(recon_np, (w, h)) * 255.0).astype(np.uint8)
         recon_bgr = cv2.cvtColor(recon_resized, cv2.COLOR_GRAY2BGR)
         return recon_bgr

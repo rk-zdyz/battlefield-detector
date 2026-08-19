@@ -8,6 +8,8 @@
 #include <queue>
 #include "frame_queue.hpp"
 
+using FrameQueue = IsolatedMemoryQueue<cv::Mat>;
+
 /**
  * @brief Core Systems Lead - CameraStream Hardware Abstraction Layer
  * Handles multithreaded OpenCV camera video ingestion, thread synchronization

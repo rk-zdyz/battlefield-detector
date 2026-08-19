@@ -26,6 +26,13 @@ public:
         py::buffer_info raw_info = raw_buf.request();
         py::buffer_info recon_info = recon_buf.request();
 
+        if (raw_info.size != recon_info.size) {
+            throw std::invalid_argument("Input buffer dimensions do not match.");
+        }
+        if (!raw_info.ptr || !recon_info.ptr) {
+            throw std::runtime_error("Null buffer pointer passed to compute_pixelwise_mse.");
+        }
+
         size_t size = raw_info.size;
         auto result = py::array_t<float>(raw_info.shape);
         py::buffer_info res_info = result.request();
