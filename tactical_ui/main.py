@@ -23,7 +23,7 @@ import torch
 current_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir = os.path.join(current_dir, "..")
 ml_dir = os.path.join(root_dir, "neuromorphic_ml")
-model_dir = os.path.join(root_dir, "edge_optimization", "models")
+model_dir = os.path.join(ml_dir, "models")
 sys.path.append(current_dir)
 sys.path.append(ml_dir)
 sys.path.append(model_dir)

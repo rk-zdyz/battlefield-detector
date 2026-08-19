@@ -92,7 +92,8 @@ def train_and_export_snn():
     model.eval()
     onnx_wrapper = ONNXExportableSNN(model).to(device)
     
-    output_dir = os.path.dirname(os.path.abspath(__file__))
+    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+    os.makedirs(output_dir, exist_ok=True)
     onnx_path = os.path.join(output_dir, "snn_autoencoder.onnx")
     
     dummy_input = torch.randn(1, in_channels, h, w, device=device)

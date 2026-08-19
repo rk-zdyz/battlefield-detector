@@ -71,8 +71,10 @@ def run_quantization_pipeline():
 
     # 4. ONNX Export Pipeline
     dummy_input = torch.randn(8, 1, 1, 128, 128)
-    output_dir = os.path.dirname(os.path.abspath(__file__))
-    onnx_path = os.path.join(output_dir, "snn_quantized_autoencoder.onnx")
+    root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    models_dir = os.path.join(root_dir, "neuromorphic_ml", "models")
+    os.makedirs(models_dir, exist_ok=True)
+    onnx_path = os.path.join(models_dir, "snn_quantized_autoencoder.onnx")
     
     print(f"[*] Exporting Quantized SNN Autoencoder to ONNX: {onnx_path}")
     torch.onnx.export(
