@@ -1,0 +1,28 @@
+# Build directories
+src_cpp/build/
+build/
+bin/
+*.dir/
+
+# Python cache & virtual environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# Databases & local telemetry logs
+*.db
+*.log
+
+# IDE & Editor files
+.vscode/
+.idea/
+.vs/
+*.user
+*.suo
+
+# Large ONNX weights (generated on-demand)
+*.onnx
