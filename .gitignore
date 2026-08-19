@@ -26,3 +26,7 @@ env/
 
 # Large ONNX weights (generated on-demand)
 *.onnx
+
+# OS generated files
+.DS_Store
+
