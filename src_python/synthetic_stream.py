@@ -105,3 +105,63 @@ class SyntheticBattlefieldGenerator:
             frame_uint8 = noisy
 
         return frame_uint8
+
+
+class BattlefieldStreamIngestor:
+    """
+    Unified Multi-Source Video Stream Ingestor.
+    Supports synthetic battlefield generator, live RTSP IP camera feeds,
+    USB webcam device indices, and video file inputs (.mp4, .avi).
+    """
+    def __init__(self, source="synthetic", width=640, height=480, fps=30):
+        self.source_str = str(source)
+        self.width = width
+        self.height = height
+        self.fps = fps
+        self.cap = None
+        self.synthetic_gen = None
+
+        if self.source_str == "synthetic" or self.source_str == "" or self.source_str == "None":
+            self.mode = "synthetic"
+            self.synthetic_gen = SyntheticBattlefieldGenerator(width=width, height=height, fps=fps)
+            print(f"[Ingestor] Mode: Synthetic Battlefield Stream Generator ({width}x{height} @ {fps} FPS)")
+        else:
+            self.mode = "video"
+            # Attempt to parse integer for webcam device index
+            if self.source_str.isdigit():
+                source_input = int(self.source_str)
+                print(f"[Ingestor] Mode: USB Webcam / Camera Index ({source_input})")
+            else:
+                source_input = self.source_str
+                print(f"[Ingestor] Mode: Live RTSP Stream / Video File ('{source_input}')")
+
+            self.cap = cv2.VideoCapture(source_input)
+            if not self.cap.isOpened():
+                print(f"[!] Warning: Unable to open video source '{source_input}'. Falling back to Synthetic Stream Generator.")
+                self.mode = "synthetic"
+                self.synthetic_gen = SyntheticBattlefieldGenerator(width=width, height=height, fps=fps)
+
+    def generate_next_frame(self, enable_noise=True, enable_threats=True):
+        if self.mode == "synthetic":
+            return self.synthetic_gen.generate_next_frame(enable_noise=enable_noise, enable_threats=enable_threats)
+        
+        # Read from video file or RTSP camera capture
+        ret, frame = self.cap.read()
+        if not ret or frame is None:
+            # Rewind video file if reached EOF
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ret, frame = self.cap.read()
+            if not ret or frame is None:
+                # If still failing, return black frame
+                return np.zeros((self.height, self.width, 3), dtype=np.uint8)
+
+        # Resize to pipeline target dimensions
+        if frame.shape[1] != self.width or frame.shape[0] != self.height:
+            frame = cv2.resize(frame, (self.width, self.height))
+
+        return frame
+
+    def release(self):
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None

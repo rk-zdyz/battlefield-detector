@@ -25,27 +25,30 @@ model_dir = os.path.join(current_dir, "..", "model_training")
 sys.path.append(current_dir)
 sys.path.append(model_dir)
 
+import argparse
 from SNN_Architecture import SNNAutoencoder
-from synthetic_stream import SyntheticBattlefieldGenerator
+from synthetic_stream import BattlefieldStreamIngestor
 from tactical_logic import TacticalDecisionLogic
 from sharp_resilience import SHARPOfflineResilienceManager
 from tactical_dashboard import TacticalDashboardDPG, TacticalDashboardOpenCV
 
 # Import pybind11 C++ zero-copy module if compiled, otherwise fallback to Python C++ engine simulation
 try:
+    if os.name == 'nt' and os.path.exists('C:/msys64/mingw64/bin'):
+        os.add_dll_directory('C:/msys64/mingw64/bin')
     import battlefield_core
     CPP_CORE_AVAILABLE = True
     print("[+] C++ pybind11 Zero-Copy Core Loaded successfully!")
-except ImportError:
+except Exception:
     CPP_CORE_AVAILABLE = False
-    print("[*] C++ pybind11 binary not built yet. Using high-performance Python/NumPy Inter-Process bridge.")
+    print("[*] C++ pybind11 binary not loaded. Using high-performance Python/NumPy Inter-Process bridge.")
 
 
 class BattlefieldDetectionPipeline:
     """
     End-to-End System Pipeline Manager.
     """
-    def __init__(self):
+    def __init__(self, source="synthetic", mse_threshold=0.05):
         print("\n========================================================")
         print("   AI-POWERED BATTLEFIELD OBJECT DETECTION SYSTEM")
         print("   Neuromorphic Edge Inference & Anomaly Calculus")
@@ -67,11 +70,11 @@ class BattlefieldDetectionPipeline:
             except Exception as e:
                 print(f"[!] Warning during SNN training: {e}")
 
-        # 2. Synthetic / Live Stream Ingestor
-        self.stream_generator = SyntheticBattlefieldGenerator(width=640, height=480, fps=30)
+        # 2. Multi-Source Stream Ingestor (Synthetic, RTSP, Video File, Webcam)
+        self.stream_generator = BattlefieldStreamIngestor(source=source, width=640, height=480, fps=30)
 
         # 3. Anomaly Calculus Engine (MSE Thresholding)
-        self.mse_threshold = 0.05
+        self.mse_threshold = mse_threshold
         
         # 4. Tactical NMS Decision Logic
         self.tactical_logic = TacticalDecisionLogic(mse_threshold=self.mse_threshold)
@@ -84,7 +87,10 @@ class BattlefieldDetectionPipeline:
 
         # 7. C++ Core Engine (if compiled)
         if CPP_CORE_AVAILABLE:
-            self.cpp_engine = battlefield_core.BattlefieldEngine()
+            if hasattr(battlefield_core, 'FastAnomalyCalculus'):
+                self.cpp_engine = battlefield_core.FastAnomalyCalculus(self.mse_threshold)
+            elif hasattr(battlefield_core, 'BattlefieldEngine'):
+                self.cpp_engine = battlefield_core.BattlefieldEngine()
 
     def run_snn_reconstruction(self, raw_frame_bgr):
         """
@@ -231,5 +237,10 @@ class BattlefieldDetectionPipeline:
 
 
 if __name__ == "__main__":
-    pipeline = BattlefieldDetectionPipeline()
+    parser = argparse.ArgumentParser(description="AI-Powered Battlefield Threat Detection Pipeline")
+    parser.add_argument("--source", type=str, default="synthetic", help="Video source: 'synthetic', webcam index (e.g. '0'), video file ('file.mp4'), or RTSP URL ('rtsp://...')")
+    parser.add_argument("--threshold", type=float, default=0.05, help="MSE Anomaly Threshold (default: 0.05)")
+    args = parser.parse_args()
+
+    pipeline = BattlefieldDetectionPipeline(source=args.source, mse_threshold=args.threshold)
     pipeline.start()

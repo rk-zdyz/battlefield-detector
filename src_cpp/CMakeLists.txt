@@ -3,7 +3,11 @@ project(battlefield_core LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# Static linking for MinGW DLL self-containment on Windows
+if(MINGW)
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -static-libgcc -static-libstdc++ -static")
+endif()
 
 # Find pybind11 include directory via Python
 execute_process(
@@ -13,7 +17,7 @@ execute_process(
     ERROR_QUIET
 )
 
-# Find Python include & library directory
+# Find Python include directory
 execute_process(
     COMMAND python -c "import sysconfig; print(sysconfig.get_path('include'))"
     OUTPUT_VARIABLE PYTHON_INCLUDE_DIR
@@ -21,21 +25,15 @@ execute_process(
     ERROR_QUIET
 )
 
-# Find OpenCV via CMake or Python cv2 package location
-find_package(OpenCV QUIET)
+# Find Python library path for Windows MinGW linking
+execute_process(
+    COMMAND python -c "import sys, os; print(os.path.join(sys.base_prefix, 'libs'))"
+    OUTPUT_VARIABLE PYTHON_LIB_DIR
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
 
-if(NOT OpenCV_FOUND)
-    execute_process(
-        COMMAND python -c "import cv2, os; print(os.path.dirname(cv2.__file__))"
-        OUTPUT_VARIABLE OPENCV_PYTHON_DIR
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_QUIET
-    )
-    if(OPENCV_PYTHON_DIR)
-        set(OpenCV_INCLUDE_DIRS "${OPENCV_PYTHON_DIR}/include")
-        file(GLOB OpenCV_LIBS "${OPENCV_PYTHON_DIR}/*.lib")
-    endif()
-endif()
+file(GLOB PYTHON_LIBS "${PYTHON_LIB_DIR}/python*.lib")
 
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -43,15 +41,8 @@ include_directories(
     ${PYTHON_INCLUDE_DIR}
 )
 
-if(OpenCV_INCLUDE_DIRS)
-    include_directories(${OpenCV_INCLUDE_DIRS})
-endif()
-
-# Build C++ Zero-Copy pybind11 module
 add_library(battlefield_core SHARED
-    src/pybind_bridge.cpp
-    src/video_ingestor.cpp
-    src/anomaly_calculus.cpp
+    src/pybind_standalone.cpp
 )
 
 set_target_properties(battlefield_core PROPERTIES
@@ -61,6 +52,6 @@ set_target_properties(battlefield_core PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../src_python"
 )
 
-if(OpenCV_LIBS)
-    target_link_libraries(battlefield_core PRIVATE ${OpenCV_LIBS})
+if(PYTHON_LIBS)
+    target_link_libraries(battlefield_core PRIVATE ${PYTHON_LIBS})
 endif()
