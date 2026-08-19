@@ -193,18 +193,31 @@ class TacticalDashboardOpenCV:
             sx, sy = int(x * (w / raw_bgr.shape[1])), int(y * (h / raw_bgr.shape[0]))
             sbw, sbh = int(bw * (w / raw_bgr.shape[1])), int(bh * (h / raw_bgr.shape[0]))
             
-            cv2.rectangle(raw_res, (sx, sy), (sx + sbw, sy + sbh), (0, 0, 255), 2)
-            cv2.putText(raw_res, f"THREAT #{t['id']}: {t['type'][:15]} ({t['confidence']*100:.0f}%)",
-                        (sx, max(15, sy - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
+            # Color code based on threat type
+            box_color = (0, 0, 255) # Red default
+            if "ARMORED" in t['type']:
+                box_color = (0, 0, 255) # Red
+            elif "INFANTRY" in t['type'] or "PERSONNEL" in t['type']:
+                box_color = (0, 165, 255) # Orange
+            elif "THERMAL" in t['type']:
+                box_color = (255, 0, 255) # Magenta
+            elif "MOTION" in t['type']:
+                box_color = (255, 255, 0) # Cyan
+
+            cv2.rectangle(raw_res, (sx, sy), (sx + sbw, sy + sbh), box_color, 2)
+            
+            label_str = f"#{t['id']} {t['type']} ({t['confidence']*100:.0f}%)"
+            cv2.putText(raw_res, label_str,
+                        (sx, max(15, sy - 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (0, 255, 255), 1)
 
         # Add HUD Headers
-        cv2.putText(raw_res, "RAW MULTISPECTRAL FEED & ALERTS", (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        cv2.putText(raw_res, "MULTISPECTRAL FEED & ALERTS", (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         cv2.putText(recon_res, "SNN RECONSTRUCTED BASELINE", (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
-        cv2.putText(mse_res, "ANOMALY MSE HEATMAP", (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 255), 2)
+        cv2.putText(mse_res, "FUSED HEATMAP (SNN + MOTION + THERMAL)", (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 200, 255), 2)
 
         # Telemetry Banner
         banner = np.zeros((60, w * 3, 3), dtype=np.uint8)
-        cv2.putText(banner, f"STATUS: {health_str}  |  FPS: {fps:.1f}  |  THREATS DETECTED: {len(threats)}",
+        cv2.putText(banner, f"STATUS: {health_str}  |  FPS: {fps:.1f}  |  MULTI-MODAL THREATS: {len(threats)}",
                     (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
         # Canvas Stitching

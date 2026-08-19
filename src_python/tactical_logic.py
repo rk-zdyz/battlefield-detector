@@ -70,22 +70,24 @@ class TacticalDecisionLogic:
         keep_scores = [scores[i] for i in keep]
         return keep_boxes, keep_scores
 
-    def detect_tactical_threats(self, mse_heatmap):
+    def detect_tactical_threats(self, fused_heatmap, motion_map=None, thermal_map=None):
         """
-        Processes C++ MSE anomaly matrix and returns consolidated threat alerts.
+        Processes multi-modal fused anomaly matrix and returns consolidated threat alerts.
         
         Args:
-            mse_heatmap (np.ndarray): Pixel-wise MSE matrix (float32, 0.0 - 1.0)
+            fused_heatmap (np.ndarray): Pixel-wise fused anomaly matrix (float32, 0.0 - 1.0)
+            motion_map (np.ndarray, optional): Normalized motion vector heatmap
+            thermal_map (np.ndarray, optional): Normalized thermal intensity heatmap
             
         Returns:
-            threats (list): List of dicts [{'bbox': [x, y, w, h], 'score': float, 'type': str}]
-            binary_mask (np.ndarray): Binary thresholded anomaly mask
+            threats (list): List of dicts [{'id': int, 'bbox': [x, y, w, h], 'score': float, 'type': str, 'confidence': float}]
+            cleaned_mask (np.ndarray): Binary thresholded anomaly mask
         """
-        if mse_heatmap is None or mse_heatmap.size == 0:
+        if fused_heatmap is None or fused_heatmap.size == 0:
             return [], None
 
         # 1. Adaptive / Absolute Thresholding
-        binary_mask = (mse_heatmap > self.mse_threshold).astype(np.uint8) * 255
+        binary_mask = (fused_heatmap > self.mse_threshold).astype(np.uint8) * 255
 
         # 2. Morphological filtering to discard transient visual noise (smoke/dust bursts)
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
@@ -104,8 +106,8 @@ class TacticalDecisionLogic:
                 x, y, w, h = cv2.boundingRect(cnt)
                 
                 # Compute localized mean anomaly intensity score
-                roi_mse = mse_heatmap[y:y+h, x:x+w]
-                score = float(np.mean(roi_mse)) if roi_mse.size > 0 else float(self.mse_threshold)
+                roi_fused = fused_heatmap[y:y+h, x:x+w]
+                score = float(np.mean(roi_fused)) if roi_fused.size > 0 else float(self.mse_threshold)
                 
                 candidate_boxes.append([x, y, w, h])
                 candidate_scores.append(score)
@@ -113,25 +115,51 @@ class TacticalDecisionLogic:
         # 4. Apply Spatial Non-Maximum Suppression (NMS)
         nms_boxes, nms_scores = self.apply_nms(candidate_boxes, candidate_scores)
 
-        # 5. Format Tactical Threat Alerts
+        # 5. Multi-Modal Threat Classification & Alert Formatting
         threats = []
         for i, (box, score) in enumerate(zip(nms_boxes, nms_scores)):
             x, y, w, h = box
-            
-            # Threat Classification based on area and anomaly score
             area = w * h
-            if area > 1200:
-                classification = "HOSTILE ARMORED ASSET / VEHICLE"
-            elif area > 400:
-                classification = "CONCEALED INFANTRY / PERSONNEL"
+            
+            # Extract localized Motion & Thermal metrics if available
+            motion_score = 0.0
+            if motion_map is not None and motion_map.size > 0:
+                roi_m = motion_map[y:y+h, x:x+w]
+                if roi_m.size > 0:
+                    motion_score = float(np.mean(roi_m))
+
+            thermal_score = 0.0
+            if thermal_map is not None and thermal_map.size > 0:
+                roi_t = thermal_map[y:y+h, x:x+w]
+                if roi_t.size > 0:
+                    thermal_score = float(np.mean(roi_t))
+
+            # Multi-Modal Decision Matrix
+            has_high_motion = motion_score > 0.15
+            has_high_thermal = thermal_score > 0.25
+
+            if area > 1000 and has_high_motion and has_high_thermal:
+                classification = "HOSTILE ARMORED VEHICLE (MOVING THERMAL)"
+            elif area > 1000 and has_high_thermal:
+                classification = "STATIC ARMORED ASSET / THERMAL ENGINE"
+            elif has_high_motion and has_high_thermal:
+                classification = "MOVING INFANTRY / PERSONNEL (THERMAL)"
+            elif has_high_thermal and not has_high_motion:
+                classification = "STATIC THERMAL HOTSPOT (EXHAUST / HAZARD)"
+            elif has_high_motion:
+                classification = "CAMOUFLAGED MOTION ANOMALY"
+            elif area > 800:
+                classification = "LARGE TERRAIN DISRUPTION / STRUCTURE"
             else:
-                classification = "DISTURBED GROUND / IMMINENT HAZARD"
-                
+                classification = "DISTURBED GROUND / IMMINENT LANDMINE"
+
             threats.append({
                 'id': i + 1,
                 'bbox': [x, y, w, h],
                 'score': score,
                 'type': classification,
+                'motion_score': motion_score,
+                'thermal_score': thermal_score,
                 'confidence': min(1.0, score / (self.mse_threshold * 2.5))
             })
 

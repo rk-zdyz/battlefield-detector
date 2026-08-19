@@ -78,8 +78,11 @@ class BattlefieldDetectionPipeline:
 
         # 5. SHARP Offline Resilience Engine
         self.resilience_manager = SHARPOfflineResilienceManager()
+        
+        # 6. Motion & Thermal Tracking State
+        self.prev_gray = None
 
-        # 6. C++ Core Engine (if compiled)
+        # 7. C++ Core Engine (if compiled)
         if CPP_CORE_AVAILABLE:
             self.cpp_engine = battlefield_core.BattlefieldEngine()
 
@@ -104,27 +107,68 @@ class BattlefieldDetectionPipeline:
         recon_bgr = cv2.cvtColor(recon_resized, cv2.COLOR_GRAY2BGR)
         return recon_bgr
 
-    def compute_mse_heatmap(self, raw_bgr, recon_bgr):
+    def compute_motion_heatmap(self, curr_gray):
         """
-        Computes pixel-wise MSE heatmap matrix between raw input and SNN baseline.
+        Computes temporal motion magnitude heatmap from consecutive frame differences.
         """
-        raw_g = cv2.cvtColor(raw_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
+        if self.prev_gray is None:
+            self.prev_gray = curr_gray.copy()
+            return np.zeros_like(curr_gray, dtype=np.float32)
+
+        # Temporal absolute frame difference
+        frame_diff = cv2.absdiff(curr_gray, self.prev_gray).astype(np.float32) / 255.0
+        self.prev_gray = curr_gray.copy()
+
+        # Gaussian smoothing to create coherent motion field
+        motion_map = cv2.GaussianBlur(frame_diff, (7, 7), 2.0)
+        return np.clip(motion_map * 2.5, 0.0, 1.0)
+
+    def compute_thermal_heatmap(self, raw_bgr):
+        """
+        Extracts thermal infrared white-hot hotspots and temperature gradients.
+        """
+        # White-Hot FLIR signature extraction from Red/Blue thermal channels
+        r_chan = raw_bgr[:, :, 2].astype(np.float32) / 255.0
+        g_chan = raw_bgr[:, :, 1].astype(np.float32) / 255.0
+        b_chan = raw_bgr[:, :, 0].astype(np.float32) / 255.0
+
+        # Thermal intensity score prioritizes hot spectral emissions
+        thermal_intensity = 0.5 * r_chan + 0.3 * b_chan + 0.2 * g_chan
+        # Highlight white-hot spots (high intensity regional clusters)
+        thermal_hotspot = np.clip((thermal_intensity - 0.70) / 0.30, 0.0, 1.0)
+        thermal_map = cv2.GaussianBlur(thermal_hotspot, (5, 5), 1.5)
+        return thermal_map
+
+    def compute_fused_anomaly_heatmap(self, raw_bgr, recon_bgr):
+        """
+        Computes multi-modal fused anomaly matrix combining SNN spatial MSE, Motion vectors, and Thermal IR.
+        """
+        curr_gray = cv2.cvtColor(raw_bgr, cv2.COLOR_BGR2GRAY)
+
+        # 1. Spatial SNN Baseline MSE Anomaly
+        raw_g = curr_gray.astype(np.float32) / 255.0
         recon_g = cv2.cvtColor(recon_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
-
-        # Pixel-wise MSE: (Raw - Recon)^2
         diff = raw_g - recon_g
-        mse_map = diff * diff
+        mse_spatial = cv2.GaussianBlur(diff * diff, (5, 5), 1.5)
 
-        # Spatial Gaussian smoothing
-        mse_smoothed = cv2.GaussianBlur(mse_map, (5, 5), 1.5)
-        
-        # Color map visualization
-        norm_map = np.clip(mse_smoothed / (self.mse_threshold * 2.5), 0.0, 1.0)
-        visual_heatmap = cv2.applyColorMap((norm_map * 255.0).astype(np.uint8), cv2.COLORMAP_JET)
-        return mse_smoothed, visual_heatmap
+        # 2. Temporal Motion Vector Heatmap
+        motion_map = self.compute_motion_heatmap(curr_gray)
+
+        # 3. Thermal IR Signature Hotspot Heatmap
+        thermal_map = self.compute_thermal_heatmap(raw_bgr)
+
+        # 4. Multi-Modal Weighted Sensor Fusion
+        # Weights: 40% SNN Spatial Baseline Anomaly, 30% Temporal Motion, 30% Thermal Signature
+        fused_map = np.clip(0.40 * (mse_spatial / (self.mse_threshold * 2.0)) +
+                            0.30 * motion_map +
+                            0.30 * thermal_map, 0.0, 1.0)
+
+        # Generate color map visualization for UI Display
+        visual_heatmap = cv2.applyColorMap((fused_map * 255.0).astype(np.uint8), cv2.COLORMAP_JET)
+        return fused_map, motion_map, thermal_map, visual_heatmap
 
     def start(self):
-        print("[+] Launching Battlefield Object Detection Dashboard...")
+        print("[+] Launching Multi-Modal AI Battlefield Threat Detection Dashboard...")
         
         # Initialize UI (Try DearPyGui first, fallback to OpenCV HUD)
         dpg_dashboard = TacticalDashboardDPG()
@@ -146,11 +190,11 @@ class BattlefieldDetectionPipeline:
                 # 2. Neuromorphic SNN Autoencoder Inference
                 recon_frame = self.run_snn_reconstruction(raw_frame)
                 
-                # 3. Anomaly Calculus (MSE Heatmap)
-                mse_map, visual_heatmap = self.compute_mse_heatmap(raw_frame, recon_frame)
+                # 3. Multi-Modal Anomaly Calculus (Spatial SNN MSE + Motion Vectors + Thermal IR)
+                fused_map, motion_map, thermal_map, visual_heatmap = self.compute_fused_anomaly_heatmap(raw_frame, recon_frame)
                 
-                # 4. Tactical NMS Threat Localization
-                threats, _ = self.tactical_logic.detect_tactical_threats(mse_map)
+                # 4. Multi-Modal Tactical NMS Threat Localization & Classification
+                threats, _ = self.tactical_logic.detect_tactical_threats(fused_map, motion_map, thermal_map)
                 
                 # 5. SHARP Fault Tolerance & Offline Logging
                 for threat in threats:
@@ -163,7 +207,7 @@ class BattlefieldDetectionPipeline:
                     fps = 10.0 / (time.time() - start_time)
                     start_time = time.time()
 
-                health_str = "SHARP NOMINAL (100% Local Edge)"
+                health_str = "SHARP NOMINAL (Multi-Modal Edge)"
 
                 # 6. Render Dashboard
                 if use_dpg:
