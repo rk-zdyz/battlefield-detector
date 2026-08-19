@@ -6,7 +6,12 @@ quantization, and ONNX export pipeline for edge device deployment (e.g., NVIDIA 
 """
 
 import os
+import sys
 import torch
+
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
+
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
