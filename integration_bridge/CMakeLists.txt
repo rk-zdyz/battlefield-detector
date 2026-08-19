@@ -42,14 +42,14 @@ include_directories(
 )
 
 add_library(battlefield_core SHARED
-    src/pybind_standalone.cpp
+    src/pybind_wrapper.cpp
 )
 
 set_target_properties(battlefield_core PROPERTIES
     PREFIX ""
     SUFFIX ".pyd"
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../src_python"
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../src_python"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../tactical_ui"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../tactical_ui"
 )
 
 if(PYTHON_LIBS)
