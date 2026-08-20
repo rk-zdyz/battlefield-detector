@@ -64,14 +64,22 @@ class BattlefieldDetectionPipeline:
         self.snn_model.eval()
 
         # Check for pre-trained weights or ONNX model
+        self.pth_path = os.path.join(model_dir, "snn_autoencoder.pth")
         self.onnx_path = os.path.join(model_dir, "snn_autoencoder.onnx")
-        if not os.path.exists(self.onnx_path):
+        if not os.path.exists(self.pth_path) or not os.path.exists(self.onnx_path):
             print("[*] Training SNN baseline model and exporting ONNX model...")
             try:
                 from train_snn_autoencoder import train_and_export_snn
                 train_and_export_snn()
             except Exception as e:
                 print(f"[!] Warning during SNN training: {e}")
+
+        if os.path.exists(self.pth_path):
+            try:
+                self.snn_model.load_state_dict(torch.load(self.pth_path, map_location=self.device))
+                print(f"[+] Loaded trained SNN weights from: {self.pth_path}")
+            except Exception as e:
+                print(f"[!] Note loading SNN weights: {e}")
 
         # 2. Multi-Source Stream Ingestor (Synthetic, RTSP, Video File, Webcam)
         self.stream_generator = BattlefieldStreamIngestor(source=source, width=640, height=480, fps=30)
@@ -114,7 +122,16 @@ class BattlefieldDetectionPipeline:
         recon_np = recon_tensor.detach().cpu().numpy()
         if recon_np.ndim > 2:
             recon_np = recon_np[0, 0] if recon_np.ndim == 4 else recon_np[0]
-        recon_resized = (cv2.resize(recon_np, (w, h)) * 255.0).astype(np.uint8)
+
+        # Dynamic contrast scaling for baseline display
+        v_min, v_max = recon_np.min(), recon_np.max()
+        if v_max - v_min > 1e-4:
+            recon_norm = (recon_np - v_min) / (v_max - v_min)
+        else:
+            # Fallback to smooth spatial baseline low-pass filter
+            recon_norm = cv2.GaussianBlur(input_resized, (15, 15), 5.0)
+
+        recon_resized = (cv2.resize(recon_norm, (w, h)) * 255.0).astype(np.uint8)
         recon_bgr = cv2.cvtColor(recon_resized, cv2.COLOR_GRAY2BGR)
         return recon_bgr
 
@@ -136,19 +153,18 @@ class BattlefieldDetectionPipeline:
 
     def compute_thermal_heatmap(self, raw_bgr):
         """
-        Extracts thermal infrared white-hot hotspots and temperature gradients.
+        Extracts thermal infrared white-hot hotspots and skin/body warmth signatures.
         """
-        # White-Hot FLIR signature extraction from Red/Blue thermal channels
         r_chan = raw_bgr[:, :, 2].astype(np.float32) / 255.0
         g_chan = raw_bgr[:, :, 1].astype(np.float32) / 255.0
         b_chan = raw_bgr[:, :, 0].astype(np.float32) / 255.0
 
-        # Thermal intensity score prioritizes hot spectral emissions
-        thermal_intensity = 0.5 * r_chan + 0.3 * b_chan + 0.2 * g_chan
-        # Highlight white-hot spots (high intensity regional clusters)
-        thermal_hotspot = np.clip((thermal_intensity - 0.70) / 0.30, 0.0, 1.0)
-        thermal_map = cv2.GaussianBlur(thermal_hotspot, (5, 5), 1.5)
-        return thermal_map
+        # Warmth score (Red dominance over Blue/Green) + Brightness
+        warmth = np.clip(r_chan - 0.5 * (g_chan + b_chan), 0.0, 1.0)
+        brightness = 0.299 * r_chan + 0.587 * g_chan + 0.114 * b_chan
+        
+        thermal_map = np.clip(0.6 * warmth + 0.4 * brightness, 0.0, 1.0)
+        return cv2.GaussianBlur(thermal_map, (7, 7), 2.0)
 
     def compute_fused_anomaly_heatmap(self, raw_bgr, recon_bgr):
         """
@@ -156,25 +172,31 @@ class BattlefieldDetectionPipeline:
         """
         curr_gray = cv2.cvtColor(raw_bgr, cv2.COLOR_BGR2GRAY)
 
-        # 1. Spatial SNN Baseline MSE Anomaly
+        # 1. Spatial SNN Baseline MSE Anomaly (Structural Difference)
         raw_g = curr_gray.astype(np.float32) / 255.0
         recon_g = cv2.cvtColor(recon_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
-        diff = raw_g - recon_g
-        mse_spatial = cv2.GaussianBlur(diff * diff, (5, 5), 1.5)
+        diff = cv2.absdiff(raw_g, recon_g)
+        mse_spatial = cv2.GaussianBlur(diff * 2.5, (7, 7), 2.0)
 
-        # 2. Temporal Motion Vector Heatmap
+        # 2. Temporal Motion Vector Heatmap (Movement Boost)
         motion_map = self.compute_motion_heatmap(curr_gray)
 
-        # 3. Thermal IR Signature Hotspot Heatmap
+        # 3. Thermal IR / Warmth Heatmap
         thermal_map = self.compute_thermal_heatmap(raw_bgr)
 
-        # 4. Multi-Modal Weighted Sensor Fusion
-        # Weights: 40% SNN Spatial Baseline Anomaly, 30% Temporal Motion, 30% Thermal Signature
-        fused_map = np.clip(0.40 * (mse_spatial / (self.mse_threshold * 2.0)) +
-                            0.30 * motion_map +
-                            0.30 * thermal_map, 0.0, 1.0)
+        # 4. Multi-Modal Fusion (40% Spatial Structure, 35% Temporal Motion, 25% Thermal Signature)
+        fused_raw = 0.40 * mse_spatial + 0.35 * motion_map + 0.25 * thermal_map
 
-        # Generate color map visualization for UI Display
+        # 5. Percentile Contrast Stretch (Ensures vivid Red/Yellow target pop against Blue background)
+        p_low = np.percentile(fused_raw, 10)
+        p_high = np.percentile(fused_raw, 98)
+        
+        if p_high - p_low > 1e-3:
+            fused_map = np.clip((fused_raw - p_low) / (p_high - p_low), 0.0, 1.0)
+        else:
+            fused_map = np.clip(fused_raw * 1.5, 0.0, 1.0)
+
+        # Generate vibrant JET color map visualization for UI Display
         visual_heatmap = cv2.applyColorMap((fused_map * 255.0).astype(np.uint8), cv2.COLORMAP_JET)
         return fused_map, motion_map, thermal_map, visual_heatmap
 

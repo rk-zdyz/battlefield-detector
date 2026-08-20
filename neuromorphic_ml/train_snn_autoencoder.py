@@ -94,6 +94,11 @@ def train_and_export_snn():
     
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
     os.makedirs(output_dir, exist_ok=True)
+    
+    pth_path = os.path.join(output_dir, "snn_autoencoder.pth")
+    torch.save(model.state_dict(), pth_path)
+    print(f"[+] Saved PyTorch model weights at: {pth_path}")
+    
     onnx_path = os.path.join(output_dir, "snn_autoencoder.onnx")
     
     dummy_input = torch.randn(1, in_channels, h, w, device=device)
